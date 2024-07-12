@@ -1,6 +1,5 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use colored::*;
-
 use std::env;
 
 mod sync;
@@ -17,19 +16,29 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Lists all syncs
+    List(NoArgs),
     /// Lists all syncs that will be synchronized
     Ls(FolderArgs),
-    /// Display information about a sync
-    Show(NameArgs),
     /// Creates a new synchrnoization and name it
     New(NameArgs),
     /// Delete a synchronization, files are kept
     Del(NameArgs),
+    /// Display information about a sync
+    Show(NameArgs),
     /// Add files to an existing synchronization
     Add(NameAndFileListArgs),
     /// Remove files to an existing synchronization
     Rm(NameAndFileListArgs),
+    Completions {
+        /// The shell to generate the completions for
+        #[arg(value_enum)]
+        shell: clap_complete_command::Shell,
+    },
 }
+
+#[derive(Args)]
+struct NoArgs {}
 
 #[derive(Args)]
 struct FileListArgs {
@@ -61,7 +70,11 @@ fn select_by_name(syncs: &Vec<Sync>, name: &String, error: bool) -> Option<Strin
     {
         [] => {
             if error {
-                print!("{} found no sync by the name {}", "error:".red(),  name.bright_green());
+                print!(
+                    "{} found no sync by the name {}",
+                    "error:".red(),
+                    name.bright_green()
+                );
             }
             None
         }
@@ -104,6 +117,9 @@ fn main() {
 
     match &cli.command {
         Some(cmd) => match &cmd {
+            Commands::Completions { shell } => {
+                shell.generate(&mut Cli::command(), &mut std::io::stdout());
+            }
             Commands::New(args) => match select_by_name(&syncs, &args.name, false) {
                 Some(name) => {
                     println!(
@@ -170,7 +186,7 @@ fn main() {
                     None => {}
                 }
             }
-            Commands::Rm(args) => { 
+            Commands::Rm(args) => {
                 let out = select_by_name(&syncs, &args.name, true).and_then(|name| {
                     Some(
                         syncs
@@ -235,13 +251,18 @@ fn main() {
                     }
                 }
             }
+            Commands::List(_) => {
+                for sync in &syncs {
+                    println!("name: {}", sync.name.bright_green());
+                }
+            }
         },
-        None =>  {
-           let path = current_dir();
-           let selected = select_by_folder(&syncs, &path);
-           for sync in &selected {
-            sync.sync();
-           }
-        },
+        None => {
+            let path = current_dir();
+            let selected = select_by_folder(&syncs, &path);
+            for sync in &selected {
+                sync.sync();
+            }
+        }
     };
 }

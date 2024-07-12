@@ -7,7 +7,6 @@ use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
 pub(crate) struct Sync {
     pub(crate) name: String,
@@ -208,8 +207,14 @@ impl Sync {
     }
 
     pub fn sync(&self) {
-        let bar = ProgressBar::new_spinner();
-        bar.enable_steady_tick(Duration::from_millis(100));
+        let bar = ProgressBar::new((self.locals.len() + self.remotes.len()).try_into().unwrap());
+        bar.set_style(
+            indicatif::ProgressStyle::with_template(
+                "{prefix} [{elapsed_precise}] {bar:60.cyan/blue} {pos:>4}/{len:4} {msg}",
+            )
+            .unwrap(),
+        );
+        bar.set_prefix(format!("check {}", self.name.bright_green()));
         let dir = env::temp_dir();
         let dst = dir.join("file");
 
@@ -219,7 +224,6 @@ impl Sync {
         let mut others = Vec::new();
 
         for path in &self.locals {
-            bar.set_message(format!("{} to update. checking {}", targets.len(), path));
             let mtime = get_mtime(&dst);
             if mtime > latest {
                 latest = mtime;
@@ -230,12 +234,11 @@ impl Sync {
             } else {
                 targets.push(path);
             }
+            bar.inc(1);
         }
         let remote_paths: Vec<String> = self.remotes.iter().map(remote_to_path).collect();
 
         for path in &remote_paths {
-            bar.set_message(format!("{} to update. checking {}", targets.len(), path));
-
             match scp(path.to_string(), dst.to_str().expect("msg").to_string()) {
                 Some(0) => {
                     let mtime = get_mtime(&dst);
@@ -251,11 +254,16 @@ impl Sync {
                 }
                 _ => {}
             }
+            bar.inc(1);
         }
         let source = others.first().unwrap();
+        if !targets.is_empty() {
+            bar.inc_length(targets.len().try_into().unwrap());
+            bar.set_prefix(format!("update {}", self.name.bright_green()));
+        }
         for target in &targets {
-            bar.set_message(format!("updating {} ", target));
             scp(source.to_string(), target.to_string());
+            bar.inc(1);
         }
         bar.finish_and_clear();
         if !targets.is_empty() {
